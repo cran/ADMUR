@@ -1,5 +1,7 @@
 ---
-title: "Replicating published results"
+title: |
+  ![](four_logos.png){height=0.5in}  
+  Replicating published results
 author: "Adrian Timpson"
 date: "`r Sys.Date()`"
 output: rmarkdown::html_vignette
@@ -19,7 +21,7 @@ This vignette provides the R code used to generate all results, plots and tables
 
 The only exception to this is the exclusion of R code for figure 3, which is an adaptation of [Fig 7 from Peel et al 2007](https://doi.org/10.5194/hess-11-1633-2007) and is therefore not novel.
 
-Each section of this vignette provides stand alone R code that is not reliant on objects created earlier in the vignette. As such, there is some repetition between sections. Setting random seeds is not necessary, but can be used to ensure random components are identical to those used in the publication. The generation and calibration of each random dataset takes seconds to complete. Simulation tests and searches performed by JDEoptimR or the generation of MCMC chains then requires several hours to complete. Therefore the code for each section is separated into two or more blocks. The first block always includes all slow components which are saved by the last line of code. This provides a firewall to allow plots to be quickly generated on a later occasion using the remaining block(s), which runs in seconds. Sometimes there is an intermediate block which takes a few seconds to perform some pre-plot processing. 
+Each section of this vignette provides stand alone R code that is not reliant on objects created earlier in the vignette. As such, there is some repetition between sections. Setting random seeds is not necessary, but can be used to ensure random components are identical to those used in the publication. The generation and calibration of each random dataset takes seconds to complete. Simulation tests and searches performed by JDEoptim or the generation of MCMC chains then requires several hours to complete. Therefore the code for each section is separated into two or more blocks. The first block always includes all slow components which are saved by the last line of code. This provides a firewall to allow plots to be quickly generated on a later occasion using the remaining block(s), which runs in seconds. Sometimes there is an intermediate block which takes a few seconds to perform some pre-plot processing. 
 
 **********
 # Figure 1
@@ -546,16 +548,12 @@ Generate key objects:
 library(ADMUR)
 library(DEoptimR)
 
-# Generate SPD 
-SPD <- summedPhaseCalibrator(data=SAAD, calcurve=shcal20, calrange = c(2500,14000))
-
 # Calibrate each phase
 CalArray <- makeCalArray(calcurve=shcal20, calrange = c(2500,14000))
 PD <- phaseCalibrator(data=SAAD, CalArray, remove.external = TRUE)
 
-# starting parameters are taken from ML search
-best.pars <- c(0.8498309, 0.5422777, 0.8995522, 0.5482174, 1.0000000)
-chain <- mcmc(PDarray=PD, startPars=best.pars, type='CPL', N=100000, burn=2000, thin=5, jumps=0.02)
+# arbitrary starting parameters
+chain <- mcmc(PDarray=PD, startPars=rep(0.5,5), type='CPL', N=100000, burn=2000, thin=5, jumps=0.025)
 
 # save results, for separate plotting
 save(chain, best.pars, file='results.RData',version=2)
@@ -829,5 +827,9 @@ write.csv(table,file='Table 1.csv', row.names=F)
 tb1 <- read.csv(file='Table1.csv')
 print(tb1)
 ```
+
+**********
+
+![](four_logos.png){height=0.55in}  
 
 **********

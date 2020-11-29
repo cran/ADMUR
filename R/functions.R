@@ -4,10 +4,13 @@
 
 #--------------------------------------------------------------------------------------------	
 # global variables
-if(getRversion() >= "2.15.1")  utils::globalVariables(c('datingType','site','calBP','phase','intcal20'))
+if(getRversion() >= "2.15.1")  utils::globalVariables(c('age','datingType','site','calBP','phase','intcal20'))
 #--------------------------------------------------------------------------------------------
 
-checkData <- function(data){
+
+
+#--------------------------------------------------------------------------------------------
+checkDataStructure <- function(data){
 	# data: data.frame of 14C dates. Requires 'age' and 'sd'.
 	# helper function to check format of data, and throw warnings
 
@@ -20,6 +23,25 @@ checkData <- function(data){
 	if(min(data$sd)<1){warning('some sd are impossibly small');return('bad')}	
 
 return(x)}
+#--------------------------------------------------------------------------------------------
+checkData <- function(data){
+	# structural problems
+	x <- checkDataStructure(data)
+
+	# a few checks for absolute clangers
+	# check suspicious sds and ages
+	bad1 <- subset(data, sd<15)
+	bad2 <- data[(data$age/data$sd)>1000,]
+	bad3 <- data[(data$sd/data$age)>0.5,]
+	bad4 <- subset(data, age<100 | age>57000)
+	bad <- unique(rbind(bad1,bad2,bad3,bad4))
+
+	if(x=='good' & nrow(bad)==0)print('No obvious clangers found')
+	if(nrow(bad)>0){
+		print('Please check the following samples...')
+		print(bad)
+		}
+return(NULL)}
 #--------------------------------------------------------------------------------------------
 checkDatingType <- function(data){
 	# used by a couple of functions, so worth avoiding repetition
@@ -264,7 +286,7 @@ summedCalibrator <- function(data, CalArray, normalise = 'standard', checks = TR
 
 	# check arguments
 	if(checks){
-		if(checkData(data)=='bad')stop()
+		if(checkDataStructure(data)=='bad')stop()
 		if(attr(CalArray, 'creator')!= 'makeCalArray') stop('CalArray was not made by makeCalArray()' )
 		if(!normalise %in% c('none','standard','full')) stop('normalise must be none, standard or full')
 		data <- checkDatingType(data)
@@ -317,7 +339,7 @@ phaseCalibrator <- function(data, CalArray, width = 200, remove.external = FALSE
 	if(width<1)stop('width must be > 1')
 	if(attr(CalArray, 'creator')!= 'makeCalArray') stop('CalArray was not made by makeCalArray()' )
 	if(nrow(data)==0)return(NULL)
- 	if(checkData(data)=='bad')stop()
+ 	if(checkDataStructure(data)=='bad')stop()
 	data <- checkDatingType(data)
 
 	# ensure dates are phased
@@ -355,7 +377,7 @@ summedCalibratorWrapper <- function(data, calcurve=intcal20, plot=TRUE){
 	# takes care of choosing a sensible date and interpolation increments range automatically
 
 	if(nrow(data)==0)return(NULL)
- 	if(checkData(data)=='bad')stop()
+ 	if(checkDataStructure(data)=='bad')stop()
 	data <- checkDatingType(data)
 
 	calrange <- chooseCalrange(data,calcurve)
@@ -405,13 +427,12 @@ loglik <- function(PD, model){
 	inc <- (years[2]-years[1])
 
 	# ensure the date ranges exactly match. If not, interpolate model pdf to match PD.
-	check <- identical(row.names(PD),model$year)
+	check <- identical(as.numeric(row.names(PD)),model$year)
 	if(!check){
 		x <- as.numeric(model$year)
 		y <- model$pdf
 		y.out <- approx(x=x, y=y, xout=years)$y
-		model <- data.frame(pdf = y.out, year = years)
-		model$pdf <- model$pdf/(sum(model$pdf)*inc)
+		model <- data.frame(year=years, pdf=y.out)
 		}
 
 	# ensure model PD is provided as a discretised PDF
@@ -432,127 +453,89 @@ loglik <- function(PD, model){
 	if(is.nan(loglik))loglik <- -Inf
 return(loglik)}
 #--------------------------------------------------------------------------------------------	
-parametersToPDFcoords <- function(x.par,y.par){
-
-	# converts x.par and y.par parameters to pdf x y coordinates
-	# length of y.par should be 1 longer than length of x.par
-	# both x.par and y.par vectors should be values between 0 and 1
-	# returns x and y values between 0 and 1
-
-	# step 1 and 2 picks each subsequent y value independently from a gamma, whilst x-values are picked using the stick breaking beta process
-	# additional constraints are required on the x-sampling to ensure even sampling across the remainder of x (s.a) and remainder of pdf area (s.b)
-	# step 3 is the penultimate step, and requires x value to be sampled before y, to ensure the area after it isn't impossible
-	# step 3 then requires the y value to be beta constrained by some maximum value
-	# finally step 4 exactly calculates the y value, to ensure total area = 1
-
-	if(length(y.par)!= (1+length(x.par)))stop('y.par must be 1 parameter longer than x.par')
-	if(sum(c(x.par,y.par)<0 | c(x.par,y.par)>1))stop('x.par and y.par must be between 0 and 1')
-	K <- length(y.par)+1
-	y <- x <- area <- stick <- numeric(K) 
-
-	# avoid y.par reaching the boundary of 1, where qgamma is Infinite, with a tiny constant
-	lim <- 1 - 1e-10
-	y.par[y.par>lim] <- lim
-
-	# step 1
-	if(K==2)y[1] <- qbeta(y.par[1],1,1)*2
-	if(K>2)y[1] <- qgamma(y.par[1],1,1)
-	x[1] <- 0
-	area[1] <- 0
-	stick[1] <- 0
-
-	# step 2
-	if(K>3)for(k in 2:(K-2)){
-		y[k] <- qgamma(y.par[k],1,1)
-		s.a <- 1-x[k-1]
-		s.b <-  2*(1-sum(area))/(y[k]+y[k-1])
-		s <- min(c(s.a,s.b))
-		stick[k] <- qbeta(x.par[k-1],1,K-k)*s
-		x[k] <- stick[k] + x[k-1]
-		area[k] <- (0.5)*(x[k]-x[k-1])*(y[k]+y[k-1])
-		}
-
-	# step 3
-	if(K>2)for(k in K-1){
-		s.a <- 1-x[k-1]
-		s.b <- 2*(1-sum(area))/y[k-1]
-		s <- min(c(s.a,s.b))
-		stick[k] <- qbeta(x.par[k-1],1,K-k)*s
-		x[k] <- stick[k] + x[k-1]
-		y.s <- ( 2*(1-sum(area)) +(x[k-1]*y[k-1]) - (x[k]*y[k-1]) ) / (1 - x[k-1])
-		y[k] <- qbeta(y.par[k],1,1)*y.s
-		area[k] <- (0.5)*(x[k]-x[k-1])*(y[k]+y[k-1])
-		}
-
-	# step 4
-	x[K] <- 1
-	y[K] <- 2*(1-sum(area))/(1-x[K-1]) - y[K-1]
-	stick[K] <- 1-x[K-1]
-	area[K] <- (0.5)*(x[K]-x[K-1])*(y[K]+y[K-1])
-
-	res <- data.frame(x=x,y=y,area=area,stick=stick)
-return(res)}
-#--------------------------------------------------------------------------------------------
 convertPars <- function(pars, years, type){
 
-	# Important: the model must be returned as a PDF. I.e, the total area must sum to 1.
+	# The model must be returned as a PDF. I.e, the total area must sum to 1.
 
 	# sanity checks
-	if(!type%in%c('CPL','exp','uniform'))stop('unknown model type. Only CPL exp or uniform currently handled')
+	if(!type%in%c('CPL','exp','uniform','norm','sine','cauchy','logistic'))stop('unknown model type. Only CPL, exp, uniform, norm, sine, cauchy, logistic currently handled')
 	if('data.frame'%in%class(pars))pars <- as.matrix(pars)
 	if('integer'%in%class(years))years <- as.numeric(years)
 	if(!'numeric'%in%class(years))stop('years must be a numeric vector')
 
+	if('NULL'%in%class(pars) | 'numeric'%in%class(pars)){
+		res <- convertParsInner(pars, years, type)
+		return(res)
+		}
+
+	if(!'numeric'%in%class(pars)){
+		N <- nrow(pars)
+		# handled differently for CPL
+		if(type=='CPL'){
+			C <- (ncol(pars)+1)/2 +1
+			yr <- pdf <- as.data.frame(matrix(,N,C))
+				names(yr) <- paste('yr',1:C,sep='')
+				names(pdf) <- paste('pdf',1:C,sep='')
+				for(n in 1:N){
+					x <- convertParsCPL(pars[n,],years)
+					yr[n,] <- x$year
+					pdf[n,] <- x$pdf
+					}
+			res <- cbind(yr,pdf)
+			}
+		if(type!='CPL'){
+			C <- length(years)
+			res <- as.data.frame(matrix(,N,C))
+			names(res) <- years
+			for(n in 1:N)res[n,] <- convertParsInner(pars[n,], years, type)$pdf
+			}
+		return(res)
+		}
+
+}
+#--------------------------------------------------------------------------------------------
+convertParsInner <- function(pars, years, type){
+
+	inc <- years[2]-years[1]
+
+	# structure of different models differs:
+	# CPL parameters are both pdfs and years
+	# uniform only requires pdfs at start and end
+	# pdfs with continuous change (cauchy, gaussian, sinewave, exponential) are described with a vector of values corresponding to 'years'
+	# in most cases a final normalisation step is performed to ensure total area = 1 (i.e., resolves truncation of pdf within date range, and numeric approximation)
+	if(type=='CPL'){
+		res <- convertParsCPL(pars,years)
+		}
 	if(type=='uniform'){
 		if(!is.null(pars))stop('A uniform model must have NULL parameters')
 		res <- data.frame( year=range(years), pdf=dunif(range(years),min(years),max(years)) )
 		}
-
-	if(type=='CPL'){
-
-		# if a single parameter set, generates a few extras
-		if('numeric'%in%class(pars))res <- convertParsCPL(pars,years)
-
-		# if a matrix of parameters, only generates the x,y coords
-		if(!'numeric'%in%class(pars)){
-			N <- nrow(pars)
-			C <- (ncol(pars)+1)/2 +1
-			yr <- pdf <- as.data.frame(matrix(,N,C))
-			names(yr) <- paste('yr',1:C,sep='')
-			names(pdf) <- paste('pdf',1:C,sep='')
-			for(n in 1:N){
-				x <- convertParsCPL(pars[n,],years)
-				yr[n,] <- x$year
-				pdf[n,] <- x$pdf
-				}
-			res <- cbind(yr,pdf)
-			}
-		}
-
 	if(type=='exp'){
-
-		inc <- years[2]-years[1]
-		
-		# if a single parameter, generates a two-column data frame
-		if('numeric'%in%class(pars)){
-			if(length(pars)!=1)stop('An exponential model must have exactly one parameter')
-			approx.pdf <- pars*exp(pars*years - pars*max(years)) # an intermediate fiddle to avoid computing nutty numbers beyond floating point limits
-			res <- data.frame(year = years, pdf = approx.pdf/(sum(approx.pdf)*inc))
-			}
-
-		# if matrix of parameters, each row is a converted parameter set
-		if(!'numeric'%in%class(pars)){
-			if(ncol(pars)!=1)stop('A CPL model must have an odd number of parameters')
-			N <- nrow(pars)
-			C <- length(years)
-			res <- as.data.frame(matrix(,N,C))
-			names(res) <- years
-			for(n in 1:N){
-				approx.pdf <- pars[n,]*exp(pars[n,]*years - pars[n,]*max(years))
-				res[n,] <- approx.pdf/(sum(approx.pdf)*inc)
-				}
-			}
+		if(length(pars)!=1)stop('exponential model requires just one rate parameter')
+		tmp <- exponentialPDF(years, min(years), max(years),pars[1])
+		res <- data.frame(year = years, pdf = tmp/(sum(tmp)*inc))
 		}
+	if(type=='logistic'){
+		if(length(pars)!=2)stop('logistic model requires two parameters, rate and centre')
+		tmp <- logisticPDF(years, min(years), max(years),pars[1], pars[2])
+		res <- data.frame(year = years, pdf = tmp/(sum(tmp)*inc))
+		}
+	if(type=='norm'){
+		if(length(pars)!=2)stop('A Gaussian model must have two parameters, mean and sd')
+		tmp <- dnorm(years, pars[1], pars[2])
+		res <- data.frame(year = years, pdf = tmp/(sum(tmp)*inc))
+		}
+	if(type=='sine'){
+		if(length(pars)!=3)stop('A sinusoidal model must have three parameters, f, p and r')
+		tmp <- sinewavePDF(years, min(years), max(years), pars[1], pars[2], pars[3])
+		res <- data.frame(year = years, pdf = tmp/(sum(tmp)*inc))
+		}
+	if(type=='cauchy'){
+		if(length(pars)!=2)stop('A cauchy model must have two parameters, location and scale')
+		tmp <- dcauchy(years, pars[1], pars[2])
+		res <- data.frame(year = years, pdf = tmp/(sum(tmp)*inc))
+		}
+
 return(res)}
 #--------------------------------------------------------------------------------------------
 convertParsCPL <- function(pars, years){
@@ -571,43 +554,37 @@ convertParsCPL <- function(pars, years){
 		y.par <- pars[(length(x.par)+1):length(pars)]
 		}
 
-	d <- parametersToPDFcoords(x.par,y.par)
-	d$year <- d$x* (max(years)-min(years)) + min(years)
+	# conversion of pars to raw hinge coordinates x between 0 and 1,  and y between 0 and Inf
+	# much more efficient stick breaking algorithm for x
+	# mapping for y (0 to 1) -> (0 to Inf) using (1/(1-y)^2)-1
+	# y0 is arbitrarily fixed at 3 since (1/(1-0.5)^2)-1
+	xn <- length(x.par)
+	if(xn>=1)proportion <- qbeta(x.par, 1 , xn:1)
+	if(xn==0)proportion <- c()
+	x.raw <- c(0,1-cumprod(1 - proportion),1)
+	y.raw <- c(3, (1/(1-y.par)^2)-1)
 
-	# generates the true pdf at the hinges
-	d$pdf <- d$y / diff(range(d$year))
+	# convert x.raw from 0 to 1, to years
+	x <- x.raw * (max(years)-min(years)) + min(years)
 
+	# area under curve
+	widths <- diff(x)
+	mids <- 0.5*(y.raw[1:(xn+1)]+y.raw[2:(xn+2)])
+	area <- sum(widths*mids)
+
+	# convert y.raw to PD
+	y <- y.raw/area 
+
+	# store
+	d <- data.frame(year=x, pdf=y)
 return(d)}
 #--------------------------------------------------------------------------------------------
 objectiveFunction <- function(pars, PDarray, type){
 
-	# sanity check a few arguments
-	if(!type%in%c('CPL','exp','uniform'))stop('unknown model type. Only CPL, exp or uniform currently handled')
-	if(type=='exponential' & length(pars)!=1)stop('exponential model requires just one rate parameter')
-	if(type=='uniform' & !is.null(pars))stop('A uniform model must have NULL parameters')
 	if(!is.data.frame(PDarray))stop('PDarray must be a data frame')
 
 	years <- as.numeric(row.names(PDarray))
-	inc <- years[2]-years[1]
-
-	if(type=='CPL'){
-		pdf <- convertPars(pars,years,type='CPL')
-		model.pdf <- approx(x=pdf$year,y=pdf$pdf,xout=years,ties='ordered',rule=2)$y 
-		}
-
-	if(type=='exp'){
-		model.pdf <- convertPars(pars,years,type='exp')$pdf
-		}
-
-	if(type=='uniform'){
-		model.pdf <- dunif(years, min(years), max(years))
-		}
- 
-	# sometimes a tiny adjustment is required, due to the discretisation
-	model.pdf <- model.pdf/(sum(model.pdf)*inc)
-
-	# calculate loglik
-	model <- data.frame(pdf=model.pdf, year=years)
+	model <- convertPars(pars,years,type)
 	loglik <- loglik(PDarray, model)
 
 return(-loglik)}
@@ -615,13 +592,23 @@ return(-loglik)}
 proposalFunction <- function(pars, jumps, type){
 	moves <- rnorm(length(pars),0,jumps)
 	new.pars <- pars + moves
-	new.pars[new.pars>0.999999] <- 0.999999
-	if(type=='CPL')new.pars[new.pars<0] <- 0
+
+	# bunch of constraints for impossible parameters (usually floating point bullshit)
+	if(type=='CPL'){
+		new.pars[new.pars<0.00000000001] <- 0.00000000001
+		new.pars[new.pars>0.99999999999] <- 0.99999999999
+		}
+	if(type=='exp'){
+		if(new.pars==0)new.pars <- 1e-100
+		}
+	if(type=='norm'){
+		new.pars[new.pars<=0] <- 1
+		}
 return(new.pars)}
 #--------------------------------------------------------------------------------------------
 mcmc <- function(PDarray, startPars, type, N = 30000, burn = 2000, thin = 5, jumps = 0.02){ 
 
-	if(!type%in%c('CPL','exp'))stop('unknown model type. Only CPL or exp')
+	if(!type%in%c('CPL','exp','norm'))stop('unknown model type. Only CPL, exp, norm')
 
 	# starting parameters
 	pars <- startPars
@@ -668,7 +655,7 @@ return(dates)}
 estimateDataDomain <- function(data, calcurve){
 
 	thresholds <- c(60000,20000,4000)
-	incs <- c(200,50,10)
+	incs <- c(100,20,1)
 	min.year <- 0
 	max.year <- 60000
 	for(n in 1:length(incs)){
@@ -813,7 +800,7 @@ relativeDeclineRate <- function(x, y, generation, N){
 		}
 return(res)	}
 #----------------------------------------------------------------------------------------------
-relativeRate <- function(x, y, generation=25, N=5000){
+relativeRate <- function(x, y, generation=25, N=1000){
 
 	if('numeric'%in%class(x)){
 		grad <- diff(y)/diff(x)
@@ -880,3 +867,43 @@ plotSimulationSummary <- function(summary, title=NULL, legend.x=NULL, legend.y=N
 	x.intersp = c(1,1,1,-0.5,-0.5,-0.5,-0.5))
 	}
 #----------------------------------------------------------------------------------------------
+sinewavePDF <- function(x,min,max,f,p,r){
+	if(r==0)return(dunif(x,min,max))
+	if(r<0 | r>1)stop('r must be between 0 and 1')
+	if(p<0 | p>(2*pi))stop('p must be between 0 and 2pi')
+	num <- (sin(2*pi*f*x + p) + 1 - log(r))
+	denum <- (max - min)*(1 - log(r)) + (1/(2*pi*f))*( cos(2*pi*f*min+p) - cos(2*pi*f*max+p) )
+	pdf <- num/denum
+	pdf[x<min | x>max] <- 0
+
+return(pdf)}
+#----------------------------------------------------------------------------------------------
+exponentialPDF <- function(x,min,max,r){
+	if(r==0)return(dunif(x,min,max))
+	num <- -r*exp(-r*x)
+	denum <- exp(-r*max)-exp(-r*min)
+	pdf <- num/denum
+	pdf[x<min | x>max] <- 0
+return(pdf)}
+#----------------------------------------------------------------------------------------------
+logisticPDF <- function(x,min,max,k,x0){
+	if(k==0)return(dunif(x,min,max))
+	num <- 1 / ( 1 + exp( -k * (x0-x) ) )
+	denum <- (1/k) * log( (1 + exp(k*(x0-min)) ) / (1 + exp(k*(x0-max)) ) )
+	pdf <- num/denum
+	pdf[x<min | x>max] <- 0
+return(pdf)}
+#----------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
