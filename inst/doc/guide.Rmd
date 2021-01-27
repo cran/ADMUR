@@ -211,13 +211,13 @@ The argument 'remove.external = TRUE' ensures any calibrated phases with less th
 print( ncol(PD) )
 ```
 
-Finally we calculate the overall log likelihood of the model given the data:
+Finally we calculate the overall relative log likelihood of the model using function [loglik()](../html/loglik.html) 
 
 ```{r, eval = TRUE}
 loglik(PD=PD, model=toy)
 ```
 
-For comparison, we can calculate the overall likelihood of a uniform model given exactly the same data. Intuitively this should have a lower likelihood, since our dataset was randomly generated from the non-uniform toy population history:
+For comparison, we can calculate the overall relative likelihood of a uniform model given exactly the same data. Intuitively this should have a lower relative likelihood, since our dataset was randomly generated from the non-uniform toy population history:
 
 ```{r, eval = TRUE}
 uniform.model <- convertPars(pars=NULL, years=5500:7500, type='uniform')
@@ -229,10 +229,11 @@ And indeed the toy model is thirty nine million trillion times more likely than 
 exp( loglik(PD=PD, model=toy) - loglik(PD=PD, model=uniform.model) )
 ```
 
+Crucially, [loglik()](../html/loglik.html) calculates the relative likelihoods for each effective sample separately (each phase containing a few dates). The overall model likelihood is the overall product of these individual likelihoods. This means that even in the case where there is no ascertainment bias, each date should still be assigned to its own phase, to ensure phaseCalibrator() calibrates each date separately. In contrast, attempting to calculate a likelihood for a single SPD constructed from the entire dataset would be incorrect, as this would be treating the entire dataset as a single 'average' sample.
 
 ## The anatomy of a CPL model
 
-Having established how to calculate the relative likelihood of any proposed model given a dataset, we can use any out-of-the-box search algorithm to find the maximum likelihood model. This first requires us to describe the PD of any population model in terms of a small number of parameters, rather than a vector of probabilities for each year.
+Having established how to calculate the relative likelihood of a proposed model given a dataset, we can use any out-of-the-box search algorithm to find the maximum likelihood model. This first requires us to describe the PD of any population model in terms of a small number of parameters, rather than a vector of probabilities for each year.
 
 We achieve this using the Continuous Piecewise Linear (CPL) model, which is defined by the (x,y) coordinates of its hinge points.
 
@@ -255,7 +256,7 @@ The parameters must be provided as a single vector with an odd length, each betw
 
 ```{r, eval = TRUE}
 set.seed(12345)
-convertPars( pars=runif(11), years=5500:7500, type='CPL' )
+CPLparsToHinges(pars=runif(11), years=5500:7500)
 ```
 
 Note: The Area Breaking Algorithm is a heuristic that ensures all parameter space is explored and therefore the maximum likelihood parameters are always found. However, unlike the one-dimensional stick-breaking process, its mapping of random parameters to PD coordinates is not perfectly even, and we welcome ideas for a more elegant algorithm.
@@ -272,7 +273,7 @@ best <- JDEoptim(lower = rep(0,5),
 	PDarray = PD, 
 	type = 'CPL', 
 	NP = 100,
-	Trace = TRUE)
+	trace = TRUE)
 ```
 
 ```{r, echo = FALSE}
@@ -280,7 +281,7 @@ load('vignette.3CPL.JDEoptim.best.RData')
 ```
 
 ```{r, eval = TRUE, fig.height = 4, fig.width=7, fig.align = "center", dev='svg', warning=FALSE}
-CPL <- convertPars(pars=best$par, years=5500:7500, type='CPL')
+CPL <- CPLparsToHinges(pars=best$par, years=5500:7500)
 SPD <- summedPhaseCalibrator( data=data, calcurve=shcal20, calrange=c(5500,7500) )
 plotPD(SPD)
 lines(CPL$year, CPL$pdf, lwd=2, col='firebrick')
@@ -357,7 +358,7 @@ lines(x=CPL$year, y=CPL$pdf, lwd=2, col=c2)
 Percentage growth rates per generation provide an intuitive statistic to quantify and compare population changes through time. However there are two key issues to overcome when estimating growth rates for a CPL model.
 
 1. CPL modelling allows for the possibility of hiatus periods, defined by pieces between hinges with a zero or near zero PD. Conventionally, the percentage decrease from any value to zero is 100%, however the equivalent percentage increase from zero is undefined.
-2. Each section of the CPL is a straight line with a constant gradient. However, a straight line has a constantly changing rate.
+2. Each section of the CPL is a straight line with a constant gradient. However, a straight line has a constantly changing growth/decline rate.
 
 The first problem is an extreme manifestation of the asymmetry from conventionally reporting change always with respect to the first value. For example, if we consider a population of 80 individuals at time $t_1$, changing to 100 at $t_2$ and to 80 at $t_3$, this would be conventionally described as a 25% increase followed by a 20% decrease.
 This asymmetry is unintuitive and unhelpful in the context of population change, and instead we use a *relative rate* which is always calculated with respect to the larger value (e.g., a '20% relative growth' followed by '20% relative decline').
@@ -382,6 +383,7 @@ y <- cbind(seq(1,100,length.out=N),seq(100,1,length.out=N))
 conventional <- 100 * exp(log(y[,2]/y[,1])/((x[,1]-x[,2])/25))-100
 relative <- relativeRate(x,y)
 plot(conventional, relative, type='l')
+rect(-100,-100,c(10,0,-10),c(10,0,-10), lty=2,border='grey')
 ```
 
 **********
@@ -586,7 +588,7 @@ plotSimulationSummary(summary, legend.y=0.0012)
 
 The above modelling components (MCMC, GOF, model comparison, relative likelihoods, BIC etc) are not constrained to CPL models, but can be applied to any model structure. Currently ADMUR offers the following:
 
- **CPL, Uniform, Exponential, Gaussian, Cauchy, Sinusoidal, Logistic** 
+ **CPL, Uniform, Exponential, Gaussian, Cauchy, Sinusoidal, Logistic, Power law** 
 
 See [convertPars()](../html/convertPars.html) for details. Care should be taken when considering a Gaussian model. The distribution of data from a single event can often superficially appear to be normally distributed due to the tendency to unconsciously apply regression methods (minimising the residuals).
 However, contrary to appearances (and intuitions) a Gaussian does not 'flatten' towards the tails, but decreases at a greater and greater rate towards zero.
@@ -594,31 +596,39 @@ As a consequence, small amounts of data that are several standard deviations awa
 Instead, for single events consider a Cauchy model, given the phenomenon that real life data usually has fatter tails than a Gaussian.
 Alternatively, if the waxing and waning of data is suspected to be driven by an oscillating system (such as climate) a sinusoidal model may more sensible.
 
-The following code uses three toy datasets to demonstrate these models. After calibration through intcal20, they retain effective sample sizes of n = 100, n = 93 and n = 79 respectively.
+The following code uses three toy datasets to demonstrate these models. After calibration through intcal20, they retain effective sample sizes of a little under n = 100.
 
 ```{r, eval = FALSE}
 # generate SPDs
+CalArray <- makeCalArray(intcal20, calrange = c(1000,4000))
 spd1 <- summedCalibrator(data1, CalArray, normalise='full')
 spd2 <- summedCalibrator(data2, CalArray, normalise='full')
 spd3 <- summedCalibrator(data3, CalArray, normalise='full')
 
 # calibrate phases
-CalArray <- makeCalArray(intcal20, calrange = c(5500,7500), inc = 5)
 PD1 <- phaseCalibrator(data1, CalArray, remove.external = TRUE)
 PD2 <- phaseCalibrator(data2, CalArray, remove.external = TRUE)
 PD3 <- phaseCalibrator(data3, CalArray, remove.external = TRUE)
 
+# effective sample sizes
+ncol(PD1)
+ncol(PD2)
+ncol(PD3)
+
 # maximum likelihood search, fitting various models to various datasets
-norm <- JDEoptim(lower=c(5500,1), upper=c(7500,5000), fn=objectiveFunction, 
-		PDarray=PD1, type='norm', NP=40, trace=T)
-cauchy <- JDEoptim(lower=c(5500,1), upper=c(7500,5000), fn=objectiveFunction, 
-		PDarray=PD1, type='cauchy', NP=40, trace=T)
-sine <- JDEoptim(lower=c(0,0,0), upper=c(1/1000,2*pi,1), fn=objectiveFunction, 
-		PDarray=PD2, type='sine', NP=60, trace=T)
-logistic <- JDEoptim(lower=c(0,5000), upper=c(1,8000), fn=objectiveFunction, 
-		PDarray=PD3, type='logistic', NP=40, trace=T)
-exp <- JDEoptim(lower=c(0), upper=c(1), fn=objectiveFunction, 
-		PDarray=PD3, type='exp', NP=20, trace=T)
+norm <- JDEoptim(lower=c(1000,1), upper=c(4000,5000), 
+	fn=objectiveFunction, PDarray=PD1, type='norm', NP=40, trace=T)
+cauchy <- JDEoptim(lower=c(1000,1), upper=c(4000,5000),
+	fn=objectiveFunction, PDarray=PD1, type='cauchy', NP=40, trace=T)
+sine <- JDEoptim(lower=c(0,0,0), upper=c(1/1000,2*pi,1),
+	fn=objectiveFunction, PDarray=PD2, type='sine', NP=60, trace=T)
+logistic <- JDEoptim(lower=c(0,0000), upper=c(1,10000),
+	fn=objectiveFunction, PDarray=PD3, type='logistic', NP=40, trace=T)
+exp <- JDEoptim(lower=c(0), upper=c(1),
+	fn=objectiveFunction, PDarray=PD3, type='exp', NP=20, trace=T)
+power <- JDEoptim(lower=c(0,-10), upper=c(10000,0),
+	fn=objectiveFunction, PDarray=PD3, type='power', NP=40, trace=T)
+
 ```
 
 Note the upper boundaries for the sinewave (see [sinewavePDF()](../html/sinewavePDF.html) for details). 
@@ -628,33 +638,196 @@ Now the maximum likelihood parameters need to be converted into a PDF and plotte
 
 ```{r, eval = FALSE}
 # convert parameters to model PDs
-mod.norm <- convertPars(pars=norm$par, years=5500:7500, type='norm')
-mod.cauchy <- convertPars(pars=cauchy$par, years=5500:7500, type='cauchy')
-mod.sine <- convertPars(pars=sine$par, years=5500:7500, type='sine')
-mod.uniform <- convertPars(pars=NULL, years=5500:7500, type='uniform')
-mod.logistic <- convertPars(pars=logistic$par, years=5500:7500, type='logistic')
-mod.exp <- convertPars(pars=exp$par, years=5500:7500, type='exp')
+years <- 1000:4000
+mod.norm <- convertPars(pars=norm$par, years, type='norm')
+mod.cauchy <- convertPars(pars=cauchy$par, years, type='cauchy')
+mod.sine <- convertPars(pars=sine$par, years, type='sine')
+mod.uniform <- convertPars(pars=NULL, years, type='uniform')
+mod.logistic <- convertPars(pars=logistic$par, years, type='logistic')
+mod.exp <- convertPars(pars=exp$par, years, type='exp')
+mod.power <- convertPars(pars=power$par, years, type='power')
 
 # Plot SPDs and various fitted models:
 par(mfrow=c(3,1), mar=c(4,4,1,1))
-cols <- c('steelblue','firebrick')
+cols <- c('steelblue','firebrick','orange')
 
 plotPD(spd1)
-lines(mod.norm, col=cols[1], lwd=2)
-lines(mod.cauchy, col=cols[2], lwd=2)
-legend(x=7500, y=max(spd1), lwd=2, col=cols, bty='n', legend=c('Gaussian','Cauchy'))
+lines(mod.norm, col=cols[1], lwd=5)
+lines(mod.cauchy, col=cols[2], lwd=5)
+legend(x=4000, y=max(spd1)*1.2, lwd=5, col=cols, bty='n', legend=c('Gaussian','Cauchy'))
 
 plotPD(spd2)
-lines(mod.sine, col=cols[1], lwd=2)
-lines(mod.uniform, col=cols[2], lwd=2)
-legend(x=7500, y=max(spd2),  lwd=2, col=cols, bty='n', legend=c('Sinewave','Uniform'))
+lines(mod.sine, col=cols[1], lwd=5)
+lines(mod.uniform, col=cols[2], lwd=5)
+legend(x=4000, y=max(spd2)*1.2,  lwd=5, col=cols, bty='n', legend=c('Sinewave','Uniform'))
 
 plotPD(spd3)
-lines(mod.logistic, col=cols[1], lwd=2)
-lines(mod.exp, col=cols[2], lwd=2)
-legend(x=7500, y=max(spd3), lwd=2, col=cols, bty='n', legend=c('Logistic','Exponential'))
+lines(mod.logistic, col=cols[1], lwd=5)
+lines(mod.exp, col=cols[2], lwd=5)
+lines(mod.power, col=cols[3], lwd=5)
+legend(x=4000, y=max(spd3)*1.2, lwd=5, col=cols, bty='n', legend=c('Logistic','Exponential','Power Law'))
 ```
 ![Examples of other models available in ADMUR](further_models.png){width=680px}  
+
+**********
+
+# 5. Taphonomy
+
+Taphonomic loss has an important influence on the amount of datable material that can be recovered, with the obvious bias that older material is less likely to survive. This means that if a constant population deposited a perfectly uniform amount of material through time, we should expect the archaeological record to show an increase in dates towards the present, rather than a uniform distribution.
+
+This taphonomic loss rate has been estimated by [Surovell et al.](https://doi.org/10.1016/j.jas.2009.03.029) and  [Bluhm and Surovell](https://doi.org/10.1017/qua.2018.78) who make a compelling argument that a power function $a(x+b)^c$  provides a useful model of taphonomic loss through time ($x$), providing not only a good statistical fit to empirical data, but is also consistent with the mechanism that datable material is subject to greater initial environmental degradation when first deposited on the ground surface compared to the increasing protection through time as it becomes cocooned from these forces. 
+
+However, there are two important issues to consider when modelling taphonomy:
+
+1. There is substantial uncertainty regarding the values of the parameters that determine the shape of the power function. We should expect different taphonomic rates in different locations due to variation in environmental and geological conditions. Indeed these studies have estimated different parameter values for the two datasets used. 
+1. There is a common misunderstanding that the taphonomic curve can be used to 'adjust' or 'correct' the data or an SPD to generate a more faithful representation of the true population dynamics. In the fact inclusion of taphonomy is achieved with additional appropriate model parameters, resulting in a more complex model. Whether or not this greater complexity is justified is moot - the decision to include or exclude cannot be resolved with model comparison and should be justified with an independent argument. When comparing models using BIC, all should be consistent in either including or excluding taphonomic curve parameters.
+
+## Taphonomic curve parameters
+
+The above studies use regression methods to estimate the taphonomic curve parameters. These methods don't incorporate the full information of the calibrated 14C dates (instead a point estimate is used for each date), and therefore are not based on likelihoods. Nor do they provide confidence intervals for the curve parameters. Finally, the parameter $a$ is unnecessary for the purposes of population modelling, since we are not interested in estimating the *absolute* loss in material, merely the *relative* loss through time. Therefore we can consider the taphonomic curve as a PDF such that the total area across the study period equals 1. This results in the following formula, where $x$ is time, and $x_{min}$ and $x_{max}$ are the time boundaries of the study period: $$\frac{(c+1)(b+x)^c}{(b+x_{max})^{(c+1)} - (b+x_{min})^{(c+1)}}$$ 
+
+This defines ADMUR's power model PDF which we apply within the MCMC framework to estimate the joint parameter distributions of $b$ and $c$ from the same two datasets used in the above studies, constraining the study period (as they did) to between 1kyr and 40kyr BP as follows:
+
+```{r, eval = FALSE}
+# generate an PD array for each dataset
+years <- seq(1000,40000,by=50)
+CalArray <- makeCalArray(intcal20, calrange = c(1000,40000),inc=50)
+PD1 <- phaseCalibrator(bryson1848, CalArray, remove.external = TRUE)
+PD2 <- phaseCalibrator(bluhm2421, CalArray, remove.external = TRUE)
+
+# MCMC search
+chain.bryson <- mcmc(PDarray=PD1, 
+		startPars=c(10000,-1.5), 
+		type='power', N=50000, 
+		burn=2000, 
+		thin=5, 
+		jumps =c(250,0.075)) 
+		
+chain.bluhm <- mcmc(PDarray=PD2, 
+	startPars=c(10000,-1.5), 
+	type='power', N=50000, 
+	burn=2000, 
+	thin=5, 
+	jumps =c(250,0.075))
+
+# convert parameters to taphonomy curves
+curve.bryson <- convertPars(chain.bryson$res, type='power', years=years)
+curve.bluhm <- convertPars(chain.bluhm$res, type='power', years=years)
+
+# plot
+plot(NULL, xlim=c(0,12000),ylim=c(-2.5,-1), xlab='parameter b', ylab='parameter c')
+points(chain.bryson$res, col=cols[1])
+points(chain.bluhm$res, col=cols[2])
+
+plot(NULL, xlim=c(0,40000),ylim=c(0,0.00025), xlab='yrs BP', ylab='PD')
+N <- nrow(chain.bryson$res)
+for(n in sample(1:N,size=1000)){
+	lines(years,curve.bryson[n,], col=cols[1])
+	lines(years,curve.bluhm[n,], col=cols[2])
+	}
+```
+![Joint taphonomic parameter estimates (and equivalent curves) from the MCMC chain generated in ADMUR using datasets used in Surovell et al. 2009 and Bluhm and Surovell 2018](taphonomy_bryson_bluhm.png){width=680px}  
+
+Clearly the taphonomic parameters $b$ and $c$ are highly correlated, and although the curves superficially appear very similar, the parameters differ significantly between the two datasets. 
+
+## Including taphonomy in a model
+
+### Maximum Likelihood Search
+
+Taphonomy can be included in any ADMUR model by including the argument *taphonomy = TRUE*, which will then use the last two model parameters as the taphonomic parameters $b$ and $c$. We suggest constraining these parameters to $0 < b < 20000$ and $-3 < c < 0$, but if there is better prior knowledge of this range (perhaps an independent dataset based on volcanic eruptions for the same study area) then this can be further constrained accordingly.
+
+For example, we might perform a maximum likelihood search using the previously generated PD array, to find the best 3-CPL model with and without taphonomy as follows:
+```{r, eval = FALSE}
+best <- JDEoptim(lower=c(0,0,0,0,0),
+	upper=c(1,1,1,1,1), 
+	fn=objectiveFunction, 
+	PDarray=PD, 
+	type='CPL',
+	taphonomy=F, 
+	trace=T, 
+	NP=100) 
+	
+best.taph <- JDEoptim(lower=c(0,0,0,0,0,0,-3), 
+	upper=c(1,1,1,1,1,20000,0), 
+	fn=objectiveFunction, 
+	PDarray=PD, 
+	type='CPL',
+	taphonomy=T, 
+	trace=T, 
+	NP=140) 
+```
+
+These parameters can then be converted to model PDFs and plotted:
+
+```{r, echo = FALSE}
+load('vignette.3CPL.JDEoptim.best.RData')
+load('vignette.3CPL.JDEoptim.best.taph.RData')
+```
+
+```{r, eval = TRUE, fig.height = 4, fig.width=7, fig.align = "center", dev='svg', warning=FALSE}
+CPL <- convertPars(pars=best$par, years=5500:7500, type='CPL', taphonomy=F)
+CPL.taph <- convertPars(pars=best.taph$par, years=5500:7500, type='CPL', taphonomy=T)
+
+SPD <- summedPhaseCalibrator( data=data, calcurve=shcal20, calrange=c(5500,7500) )
+plotPD(SPD)
+lines(CPL$year, CPL$pdf, lwd=2, col=cols[1])
+lines(CPL.taph$year, CPL.taph$pdf, lwd=2, col=cols[2])
+legend(x=6300,y=0.001,legend=c('3-CPL','3-CPL with taphonomy'),bty='n',col=cols[1:2],lwd=2,cex=0.7)
+```
+
+The above *3-CPL with taphonomy* model represents a conflation of two model components: the population dynamics and the taphonomic loss. Instead we are interested in separating these components:
+```{r, eval = TRUE, fig.height = 4, fig.width=7, fig.align = "center", dev='svg', warning=FALSE}
+pop <- convertPars(pars=best.taph$par[1:5], years=5500:7500, type='CPL')
+taph <- convertPars(pars=best.taph$par[6:7], years=5500:7500, type='power')
+plotPD(pop)
+title('Population dynamics')
+plotPD(taph)
+title('Taphonomic loss')
+```
+
+Finally the hinge coordinates of the population dynamics can be extracted:
+```{r, eval = TRUE}
+CPLparsToHinges(pars=best.taph$par[1:5], years=5500:7500)
+```
+
+### MCMC search for credible intervals
+
+We should always be cautious of assigning too much importance to point estimates.Maximum Likelihood Estimates above are no exception to this. Smaller sample sizes will always result in larger uncertainties, and it is always better to estimate this plausible range of results. This is of particular concern with taphonomic parameters since the reanalysis of the volcanic datasets above illustrates how a large range of parameter combinations provide very similar taphonomic curves. Furthermore, when including taphonomy in the model, the taphonomic parameters have the potential to interact with the population dynamics parameters in vastly more parameter combinations that will give in many different combinations of similar overall radiocarbon date distributions. 
+Therefore we can perform an MCMC parameter search as follows:
+
+```{r, eval = FALSE}
+chain.taph <- mcmc(PDarray = PD, 
+	startPars = c(0.5,0.5,0.5,0.5,0.5,10000,-1.5), 
+	type='CPL', taphonomy=T, 
+	N = 30000, 
+	burn = 2000, 
+	thin = 5, 
+	jumps = 0.025)
+```
+
+These can then be separated into population dynamics parameters and taphonomic parameters for either direct plotting, or converted to model PDFs and plotted:
+
+```{r, eval = FALSE}
+# convert parameters into model PDFs
+pop <- convertPars(pars=chain.taph$res[,1:5], years=5500:7500, type='CPL')
+taph <- convertPars(pars=chain.taph$res[,6:7], years=seq(1000,30000,by=50), type='power')
+
+# plot population dynamics PDF
+plot(NULL, xlim=c(7500,5500),ylim=c(0,0.0013), xlab='calBP', ylab='PD', las=1)
+for(n in 1:nrow(pop))lines(5500:7500, pop[n,],col=alpha(1,0.05))
+
+# plot taphonomy PDF
+plot(NULL, xlim=c(30000,0),ylim=c(0,0.00025), xlab='calBP', ylab='PD',las=1,)
+for(n in 1:nrow(taph))lines(seq(1000,30000,by=50), taph[n,],col=alpha(1,0.02))
+
+# plot taphonomic parameters
+plot(NULL, xlim=c(0,20000),ylim=c(-3,0), xlab='parameter b', ylab='parameter c',las=1)
+for(n in 1:nrow(chain.taph$res))points(chain.taph$res[n,6], chain.taph$res[n,7],col=alpha(1,0.2),pch=20)
+```
+
+![Joint posterior distributions of population dynamics only.](mcmc_pop_without_taph.png){width=680px}
+ 
+![Joint posterior distributions of taphonomy only. Clearly there is not enough information content in such a small toy dataset to narrow the taphonomic parameters better than the initial prior constraints](mcmc_taph.png){width=680px} 
 
 **********
 
