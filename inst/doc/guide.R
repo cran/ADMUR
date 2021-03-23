@@ -19,15 +19,15 @@ SAAD[1:5,1:8]
 ## ---- eval = TRUE-------------------------------------------------------------
 citation('ADMUR')
 
-## ---- eval = TRUE, fig.height = 3, fig.width=7, fig.align = "center", dev='svg', warning=FALSE----
+## ---- eval = TRUE, fig.height = 3, fig.width=7,  fig.align = "center", dev='jpeg', quality=100, warning=FALSE----
 data <- data.frame( age=c(6562,7144), sd=c(44,51) )
 x <- summedCalibratorWrapper(data)
 
-## ---- eval = TRUE, fig.height = 3, fig.width=7, fig.align = "center", dev='svg', warning=FALSE----
+## ---- eval = TRUE, fig.height = 3, fig.width=7, fig.align = "center", dev='jpeg', quality=100, warning=FALSE----
 data <- data.frame( age=c(6562,7144), sd=c(44,51), datingType=c('14C','TL') )
 x <- summedCalibratorWrapper(data=data, calcurve=shcal20)
 
-## ---- eval = TRUE, fig.height = 3, fig.width=7, fig.align = "center", dev='svg', warning=FALSE----
+## ---- eval = TRUE, fig.height = 3, fig.width=7, fig.align = "center", dev='jpeg', quality=100, warning=FALSE----
 data <- data.frame( age = c(9144), sd=c(151) )
 CalArray <- makeCalArray( calcurve=intcal20, calrange=c(8000,13000) )
 cal <- summedCalibrator(data, CalArray)
@@ -41,7 +41,7 @@ plotCalArray(x)
 data <- subset( SAAD, site %in% c('Carrizal','Pacopampa') )
 data[,2:7]
 
-## ---- eval = TRUE, fig.height = 3, fig.width=7, fig.align = "center", dev='svg', warning=FALSE----
+## ---- eval = TRUE, fig.height = 3, fig.width=7, fig.align = "center", dev='jpeg', quality=100, warning=FALSE----
 CalArray <- makeCalArray( calcurve=shcal20, calrange=c(2000,6000) )
 x <- phaseCalibrator(data=data, CalArray=CalArray)
 plotPD(x)
@@ -52,7 +52,7 @@ SPD <- as.data.frame( rowSums(x) )
 # normalise
 SPD <- SPD/( sum(SPD) * CalArray$inc )
 
-## ---- eval = TRUE, fig.height = 3, fig.width=7, fig.align = "center", dev='svg', warning=FALSE----
+## ---- eval = TRUE, fig.height = 3, fig.width=7, fig.align = "center", dev='jpeg', quality=100, warning=FALSE----
 SPD <- summedPhaseCalibrator( data=data, calcurve=shcal20, calrange=c(2000,6000) )
 plotPD(SPD)
 
@@ -101,7 +101,7 @@ CPLparsToHinges(pars=runif(11), years=5500:7500)
 ## ---- echo = FALSE------------------------------------------------------------
 load('vignette.3CPL.JDEoptim.best.RData')
 
-## ---- eval = TRUE, fig.height = 4, fig.width=7, fig.align = "center", dev='svg', warning=FALSE----
+## ---- eval = TRUE, fig.height = 4, fig.width=7, fig.align = "center", dev='jpeg', quality=100, warning=FALSE----
 CPL <- CPLparsToHinges(pars=best$par, years=5500:7500)
 SPD <- summedPhaseCalibrator( data=data, calcurve=shcal20, calrange=c(5500,7500) )
 plotPD(SPD)
@@ -153,7 +153,7 @@ text(x=CPL$year, y=CPL$pdf, pos=3, labels=c('H1','H2','H3','H4'))
 #  	}
 #  lines(x=CPL$year, y=CPL$pdf, lwd=2, col=c2)
 
-## ---- eval = TRUE, fig.height = 4, fig.width=7, fig.align = "center", dev='svg', warning=FALSE----
+## ---- eval = TRUE, fig.height = 4, fig.width=7, fig.align = "center", dev='jpeg', quality=100, warning=FALSE----
 N <- 1000
 x <- cbind(rep(5100,N),rep(5000,N))
 y <- cbind(seq(1,100,length.out=N),seq(100,1,length.out=N))
@@ -194,7 +194,7 @@ BIC.exp <- 1*log(303) - 2*(-exp$value)
 BIC.uniform <- 0 - 2*(-uniform)
 data.frame(BIC.1,BIC.2,BIC.3,BIC.4,BIC.exp,BIC.uniform)
 
-## ---- eval = TRUE, fig.height = 4, fig.width=7, fig.align = "center", dev='svg', warning=FALSE----
+## ---- eval = TRUE, fig.height = 4, fig.width=7, fig.align = "center", dev='jpeg', quality=100, warning=FALSE----
 # convert parameters to model PDs
 CPL1 <- convertPars(pars=CPL.1$par, years=5500:7500, type='CPL') 
 CPL2 <- convertPars(pars=CPL.2$par, years=5500:7500, type='CPL')  
@@ -219,7 +219,7 @@ legend(x=6300, y=max(CPL$pdf), cex=0.7, lwd=2, col=cols, bty='n', legend=legend)
 ## ---- echo = FALSE------------------------------------------------------------
 load('vignette.3CPL.SPDsimulationTest.RData')
 
-## ---- eval = TRUE, fig.height = 5, fig.width=7, fig.align = "center", dev='svg', warning=FALSE----
+## ---- eval = TRUE, fig.height = 5, fig.width=7, fig.align = "center", dev='jpeg', quality=100, warning=FALSE----
 print(summary$pvalue)
 hist(summary$simulated.stat, main='Summary statistic', xlab='')
 abline(v=summary$observed.stat, col='red')
@@ -231,7 +231,7 @@ legend(0.3,6000, bty='n', lwd=c(1,3), col=c('red','grey'), legend=c('observed','
 ## ---- echo = FALSE------------------------------------------------------------
 load('vignette.exp.SPDsimulationTest.RData')
 
-## ---- eval = TRUE, fig.height = 4, fig.width=7, fig.align = "center", dev='svg', warning=FALSE, message=FALSE----
+## ---- eval = TRUE, fig.height = 4, fig.width=7, fig.align = "center", dev='jpeg', quality=100, warning=FALSE, message=FALSE----
 plotSimulationSummary(summary, legend.y=0.0012)
 
 ## ---- eval = FALSE------------------------------------------------------------
@@ -358,7 +358,7 @@ plotSimulationSummary(summary, legend.y=0.0012)
 load('vignette.3CPL.JDEoptim.best.RData')
 load('vignette.3CPL.JDEoptim.best.taph.RData')
 
-## ---- eval = TRUE, fig.height = 4, fig.width=7, fig.align = "center", dev='svg', warning=FALSE----
+## ---- eval = TRUE, fig.height = 4, fig.width=7, fig.align = "center", dev='jpeg', quality=100, warning=FALSE----
 CPL <- convertPars(pars=best$par, years=5500:7500, type='CPL', taphonomy=F)
 CPL.taph <- convertPars(pars=best.taph$par, years=5500:7500, type='CPL', taphonomy=T)
 
@@ -368,7 +368,7 @@ lines(CPL$year, CPL$pdf, lwd=2, col=cols[1])
 lines(CPL.taph$year, CPL.taph$pdf, lwd=2, col=cols[2])
 legend(x=6300,y=0.001,legend=c('3-CPL','3-CPL with taphonomy'),bty='n',col=cols[1:2],lwd=2,cex=0.7)
 
-## ---- eval = TRUE, fig.height = 4, fig.width=7, fig.align = "center", dev='svg', warning=FALSE----
+## ---- eval = TRUE, fig.height = 4, fig.width=7, fig.align = "center", dev='jpeg', quality=100, warning=FALSE----
 pop <- convertPars(pars=best.taph$par[1:5], years=5500:7500, type='CPL')
 taph <- convertPars(pars=best.taph$par[6:7], years=5500:7500, type='power')
 plotPD(pop)
